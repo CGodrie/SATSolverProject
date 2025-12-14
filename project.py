@@ -109,6 +109,55 @@ def gen_solution(durations: list[int], c: int, T: int) -> None | list[tuple]:
                 for s in directions:
                     if durations[p] > d:
                         cnf.append([-dur(t, d), -dep(t, p, s)])
+
+    # 4. Aucune poule ne peut embarquer pendant la durée d'un trajet (pas de départ possible)
+    for t in range(T):
+        for d in durations:
+            if t + d <= T:
+                for tprime in range(t + 1, t + d):
+                    for p in range(N):
+                        for s in directions:
+                            cnf.append([-dur(t, d), -dep(tprime, p, s)])
+
+    # Contraintes sur l'évolution de la population des poules
+
+    # 1. Une poule ne peut pas être sur les deux berges au même moment
+    for t in range(T+1):
+        for p in range(N):
+            cnf.append([-A(p, t), -B(p, t)])
+
+    # 2. Une poule qui embarque pour un aller se retrouve sur la berge B
+    for t in range(T):
+        for p in range(N):
+            for d in durations:
+                if t + d <= T:
+                    cnf.append([-dep(t, p, "aller"), -dur(t, d), B(p, t + d)])
+
+    # 3. Une poule qui embarque pour un retour se retrouve sur la berge A
+    for t in range(T):
+        for p in range(N):
+            for d in durations:
+                if t + d < T:
+                    cnf.append([-dep(t, p, "retour"), -dur(t, d), A(p, t + d)])
+
+    # 4. Une poule qui ne voyage pas reste sur sa berge
+    for t in range(T):
+        for p in range(N):
+            for d in durations:
+                for s in directions:
+                    if t + d <= T:
+                        for tprime in range(t + 1, t + d):
+                            cnf.append([-dur(t, d), dep(t, p, s), -A(p, t), A(p, tprime)])
+                            cnf.append([-dur(t, d), dep(t, p, s), -B(p, t), B(p, tprime)])
+
+    # 5. Au plus C poules par trajet
+    for t in range(T):
+        for s in directions:
+            lits_max_c_chickens = []
+            for p in range(N):
+                lits_max_c_chickens.append(dep(t, p, s))
+            cnf.extend(CardEnc.atmost(lits=lits_max_c_chickens, bound=c, vpool=vpool).clauses)
+                
                 
 
     # ----------Résolution----------
