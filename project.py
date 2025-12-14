@@ -34,7 +34,7 @@ def gen_solution(durations: list[int], c: int, T: int) -> None | list[tuple]:
     #   Toutes les poules en B
     #   Bateau en B
     for p in range(N):
-        cnf.append(B(p, T))
+        cnf.append([B(p, T)])
     cnf.append([side(T)])
 
     # ----------Résolution----------
