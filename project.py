@@ -83,6 +83,34 @@ def gen_solution(durations: list[int], c: int, T: int) -> None | list[tuple]:
         lits_all_b.append(AllB(t))
         cnf.append(lits_all_b)
 
+    # Contraintes liées à la durée des trajets
+
+    # 1. Au plus une durée par voyage
+    for t in range(T):
+        for i1 in range(len(durations)):
+            for i2 in range(len(durations)):
+                if i1 != i2:
+                    cnf.append([-dur(t, durations[i1]), -dur(t, durations[i2])])
+
+    # 2. Si un voyage dure d, il y a au moins une poule à bord de même lenteur
+    for t in range(T):
+        for d in durations:
+            lits_d_slow_chickens = [-dur(t, d)]
+            for p in range(N):
+                for s in directions:
+                    if durations[p] == d:
+                        lits_d_slow_chickens.append(dep(t, p, s))
+            cnf.append(lits_d_slow_chickens)
+    
+    # 3. Si un voyage dure d, il n'y a aucune poule à bord plus lente
+    for t in range(T):
+        for d in durations:
+            for p in range(N):
+                for s in directions:
+                    if durations[p] > d:
+                        cnf.append([-dur(t, d), -dep(t, p, s)])
+                
+
     # ----------Résolution----------
 
     res = []
