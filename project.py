@@ -37,6 +37,52 @@ def gen_solution(durations: list[int], c: int, T: int) -> None | list[tuple]:
         cnf.append([B(p, T)])
     cnf.append([side(T)])
 
+    # Expressions de Dep, Arr, et AllB en fonction des autres variables
+
+    # 1. Un départ a lieu si et seulement si au moins une poule embarque
+    #    Sens Dep => dep
+    for t in range(T):
+        lits_at_least_one_chicken = [-Dep(t)]
+        for p in range(N):
+            for s in directions:
+                lits_at_least_one_chicken.append(dep(t, p, s))
+        cnf.append(lits_at_least_one_chicken)
+
+    #    Sens dep => Dep
+    for t in range(T):
+        for p in range(N):
+            for s in directions:
+                cnf.append([-dep(t, p, s), Dep(t)])
+
+    # 2. La barque termine un voyage à un instant donné s'il y a eu un départ auparavant
+    #    Une durée implique une arrivée
+    for t in range(T):
+        for d in durations:
+            if t + d <= T:
+                cnf.append([-dur(t, d), Arr(t + d)])
+    
+    #    Une arrivée implique une durée
+    for arrival_time in range(T+1):
+        lits_possible_durations = [-Arr(t)]
+        for d in durations:
+            if arrival_time - d >= 0:
+                lits_possible_durations.append(dur(arrival_time - d, d))
+        cnf.append(lits_possible_durations)
+
+    # 3. AllB est vraie si et seulement si toutes les poules sont en B en même temps
+    #    Sens AllB => B
+    for t in range(T+1):
+        for p in range(N):
+            cnf.append([-AllB(t), B(p, t)])
+
+    #    Sens B pour tout p => AllB
+    for t in range(T+1):
+        lits_all_b = []
+        for p in range(N):
+            lits_all_b.append(-B(p, t))
+        lits_all_b.append(AllB(t))
+        cnf.append(lits_all_b)
+
     # ----------Résolution----------
 
     res = []
