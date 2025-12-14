@@ -23,6 +23,20 @@ def gen_solution(durations: list[int], c: int, T: int) -> None | list[tuple]:
     
     # ----------Construction des clauses----------
 
+    # Conditions initiales:
+    #   Toutes les poules en A
+    #   Bateau en A
+    for p in range(N):
+        cnf.append([A(p, 0)])
+    cnf.append([-side(0)])
+
+    # Conditions finales
+    #   Toutes les poules en B
+    #   Bateau en B
+    for p in range(N):
+        cnf.append(B(p, T))
+    cnf.append([side(T)])
+
     # ----------Résolution----------
 
     res = []
