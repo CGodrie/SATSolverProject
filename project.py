@@ -4,302 +4,218 @@ from pysat.formula import CNF, IDPool
 from pysat.card import CardEnc
 
 def gen_solution(durations: list[int], c: int, T: int) -> None | list[tuple]:
-    N = len(durations)
-    solution_display = True
-    vpool = IDPool(start_from=1)
-    directions = ["aller", "retour"]
-    cnf = CNF()
+    """
+    Variables:
+    - A(i, t): poule i est côté A à l'instant t
+    - B(i, t): poule i est côté B à l'instant t
+    - Travel(t, d): voyage de durée d commence à l'instant t
+    - TravelDir(t): direction du voyage (False=A->B, True=B->A)
+    - OnBoard(i, t): poule i embarque au voyage commençant à t
+    """
+    from pysat.formula import CNFPlus, IDPool
+    from pysat.card import CardEnc
+    from pysat.solvers import Minicard
 
-    # ----------Définition des variables
+    n = len(durations)
+    max_d = max(durations)
 
-    def A(p: int, t: int) -> (int | Any): return vpool.id(("A", p, t))
-    def B(p: int, t: int) -> (int | Any): return vpool.id(("B", p, t))
-    def side(t: int) -> (int | Any): return vpool.id(("side", t))
-    def dep(t: int, p: int, s: str) -> (int | Any): return vpool.id(("dep", t, p, s))
-    def dur(t: int, d: int) -> (int | Any): return vpool.id(("dur", t, d))
-    def Dep(t: int) -> (int | Any): return vpool.id(("Dep", t))
-    def Arr(t: int) -> (int | Any): return vpool.id(("Arr", t))
-    def AllB(t: int) -> (int | Any): return vpool.id(("AllB", t))
-    
-    # ----------Construction des clauses----------
+    cnf = CNFPlus()
+    vpool = IDPool()
 
-    # Conditions initiales:
-    #   Toutes les poules en A
-    #   Bateau en A
-    #   Premier aller vers B
-    for p in range(N):
-        cnf.append([A(p, 0)])
-    cnf.append([-side(0)])
-    cnf.append([Dep(0)])
+    # ---------- Variables ----------
+    def A(i, t):
+        return vpool.id(("A", i, t))
 
-    # Conditions finales
-    #   Toutes les poules en B
-    #   Bateau en B
-    for p in range(N):
-        cnf.append([B(p, T)])
-    cnf.append([side(T)])
+    def B(i, t):
+        return vpool.id(("B", i, t))
 
-    # Expressions de Dep, Arr, et AllB en fonction des autres variables
+    def Travel(t, d):
+        return vpool.id(("Travel", t, d))  # Voyage de durée d commence à t
 
-    # 1. Un départ a lieu si et seulement si au moins une poule embarque
-    #    Sens Dep => dep
-    for t in range(T):
-        lits_at_least_one_chicken = [-Dep(t)]
-        for p in range(N):
-            for s in directions:
-                lits_at_least_one_chicken.append(dep(t, p, s))
-        cnf.append(lits_at_least_one_chicken)
+    def TravelDir(t):
+        return vpool.id(("TravelDir", t))  # False=A->B, True=B->A
 
-    #    Sens dep => Dep
-    for t in range(T):
-        for p in range(N):
-            for s in directions:
-                cnf.append([-dep(t, p, s), Dep(t)])
+    def OnBoard(i, t):
+        return vpool.id(("OnBoard", i, t))  # Poule i embarque voyage à t
 
-    # 2. La barque termine un voyage à un instant donné s'il y a eu un départ auparavant
-    #    Une durée implique une arrivée
-    for t in range(T):
-        for d in durations:
-            if t + d <= T:
-                cnf.append([-dur(t, d), Arr(t + d)])
-    
-    #    Une arrivée implique une durée
-    for arrival_time in range(T+1):
-        lits_possible_durations = [-Arr(arrival_time)]
-        for d in durations:
-            if arrival_time - d >= 0:
-                lits_possible_durations.append(dur(arrival_time - d, d))
-        cnf.append(lits_possible_durations)
+    def BoatSide(t):
+        return vpool.id(("BoatSide", t))  # False=A, True=B
 
-    # 3. AllB est vraie si et seulement si toutes les poules sont en B en même temps
-    #    Sens AllB => B
-    for t in range(T+1):
-        for p in range(N):
-            cnf.append([-AllB(t), B(p, t)])
+    # ---------- État initial (t=0) ----------
+    for i in range(n):
+        cnf.append([A(i, 0)])  # Toutes les poules commencent côté A
+        cnf.append([-B(i, 0)])
 
-    #    Sens B pour tout p => AllB
-    for t in range(T+1):
-        lits_all_b = []
-        for p in range(N):
-            lits_all_b.append(-B(p, t))
-        lits_all_b.append(AllB(t))
-        cnf.append(lits_all_b)
+    cnf.append([-BoatSide(0)])  # Barque côté A au départ
 
-    # Contraintes liées à la durée des trajets
+    # ---------- État final (t=T) ----------
+    for i in range(n):
+        cnf.append([B(i, T)])  # Toutes les poules doivent être côté B
+        cnf.append([-A(i, T)])
 
-    # 1. Au plus une durée par voyage
-    for t in range(T):
-        for i1 in range(len(durations)):
-            for i2 in range(len(durations)):
-                if i1 != i2:
-                    cnf.append([-dur(t, durations[i1]), -dur(t, durations[i2])])
-
-    # 2. Si un voyage dure d, il y a au moins une poule à bord de même lenteur
-    for t in range(T):
-        for d in durations:
-            lits_d_slow_chickens = [-dur(t, d)]
-            for p in range(N):
-                for s in directions:
-                    if durations[p] == d:
-                        lits_d_slow_chickens.append(dep(t, p, s))
-            cnf.append(lits_d_slow_chickens)
-    
-    # 3. Si un voyage dure d, il n'y a aucune poule à bord plus lente
-    for t in range(T):
-        for d in durations:
-            for p in range(N):
-                for s in directions:
-                    if durations[p] > d:
-                        cnf.append([-dur(t, d), -dep(t, p, s)])
-
-    # 4. Aucune poule ne peut embarquer pendant la durée d'un trajet (pas de départ possible)
-    for t in range(T):
-        for d in durations:
-            if t + d <= T:
-                for tprime in range(t + 1, t + d):
-                    for p in range(N):
-                        for s in directions:
-                            cnf.append([-dur(t, d), -dep(tprime, p, s)])
-
-    # 5. Au moins une durée par voyage
-    for t in range(T):
-        lits_at_least_one_duration = [-Dep(t)]
-        for d in durations:
-            lits_at_least_one_duration.append(dur(t, d))
-        cnf.append(lits_at_least_one_duration)
-
-    # 6. Une durée implique un départ
-    for t in range(T):
-        for d in durations:
-            cnf.append([-dur(t, d), Dep(t)])
-
-    # Contraintes sur l'évolution de la population des poules
-
-    # 1. Une poule ne peut pas être sur les deux berges au même moment
-    for t in range(T+1):
-        for p in range(N):
-            cnf.append([-A(p, t), -B(p, t)])
-
-    # 2. Une poule qui embarque pour un aller se retrouve sur la berge B
-    for t in range(T):
-        for p in range(N):
-            for d in durations:
-                if t + d <= T:
-                    cnf.append([-dep(t, p, "aller"), -dur(t, d), B(p, t + d)])
-
-    # 3. Une poule qui embarque pour un retour se retrouve sur la berge A
-    for t in range(T):
-        for p in range(N):
-            for d in durations:
-                if t + d <= T:
-                    cnf.append([-dep(t, p, "retour"), -dur(t, d), A(p, t + d)])
-
-    # 4. Une poule qui ne voyage pas reste sur sa berge
-    for t in range(T):
-        for p in range(N):
-            for d in durations:
-                if t + d <= T:
-                    for tprime in range(t + 1, t + d):
-                        cnf.append([-dur(t, d), dep(t, p, "aller"), -A(p, t), A(p, tprime)])
-                        cnf.append([-dur(t, d), dep(t, p, "retour"), -B(p, t), B(p, tprime)])
-
-    # 5. Si une poule est en A ou en B, soit elle y était déjà et n'a pas embarqué pour un aller ou un retour, soit elle y arrive
-    #    Pour A
-    for t in range(1, T+1):
-        for p in range(N):
-            clause1 = [-A(p,t), A(p,t-1)]
-            clause2 = [-A(p,t), -dep(t-1,p,"aller")]
-            for d in durations:
-                if t-d >= 0:
-                    clause1.append(dep(t-d,p,"retour"))
-                    clause2.append(dep(t-d,p,"retour"))
-            cnf.append(clause1)
-            cnf.append(clause2)
-
-    #    Pour B
-    for t in range(1, T+1):
-        for p in range(N):
-            clause1 = [-B(p,t), B(p,t-1)]
-            clause2 = [-B(p,t), -dep(t-1,p,"retour")]
-            for d in durations:
-                if t-d >= 0:
-                    clause1.append(dep(t-d,p,"aller"))
-                    clause2.append(dep(t-d,p,"aller"))
-            cnf.append(clause1)
-            cnf.append(clause2)
-
-    # Contraintes sur la dynamique des mouvements
-
-    # 1. Au plus C poules par trajet
-    for t in range(T):
-        for s in directions:
-            lits_max_c_chickens = []
-            for p in range(N):
-                lits_max_c_chickens.append(dep(t, p, s))
-            cnf.extend(CardEnc.atmost(lits=lits_max_c_chickens, bound=c, vpool=vpool).clauses)
-
-    # 2. Un voyage dans un sens n'est possible que si la barque est du bon côté
-    for t in range(T):
-        for p in range(N):
-            cnf.append([-dep(t, p, "aller"), -side(t)])
-            cnf.append([-dep(t, p, "retour"), side(t)])
-
-    # 3. Une poule ne peut embarquer pour un sens de trajet que si elle est du bon côté
-    for t in range(T):
-        for p in range(N):
-            cnf.append([-dep(t, p, "aller"), A(p, t)])
-            cnf.append([-dep(t, p, "retour"), B(p, t)])
-
-    # 4. La barque change de côté à la fin d'un voyage
-    for t in range(T):
-        for p in range(N):
-            for d in durations:
-                if t + d <= T:
-                    cnf.append([-dep(t, p, "aller"), -dur(t, d), side(t + d)])
-                    cnf.append([-dep(t, p, "retour"), -dur(t, d), -side(t + d)])
-
-    # 5. Alternance stricte des sens des trajets
-    #    Un départ après chaque arrivée tant qu'on n'atteint pas T ou que toutes les poules ne sont pas en B
-    for t in range(T):
-        cnf.append([-Arr(t), AllB(t), Dep(t)])
-
-    #    Pendant un trajet, on considère que la barque ne change pas de position
-    for t in range(T):
-        for d in durations:
-            for tprime in range(t + 1, t + d):
-                cnf.append([-side(t), -dur(t, d), side(tprime)])
-                cnf.append([side(t), -dur(t, d), -side(tprime)])
-
-    # 6. Un seul trajet effectué à la fois
-    for t in range(T):
-        for p in range(N):
-            for q in range(N):
-                cnf.append([-dep(t, p, "aller"), -dep(t, q, "retour")])
-
-    # 7. Si toutes les poules arrivent en B avant T, plus aucun départ n'est possible
+    # ---------- Contraintes de position: A et B sont exclusifs ----------
     for t in range(T + 1):
-        cnf.append([-AllB(t), -Dep(t)])
+        for i in range(n):
+            cnf.append([-A(i, t), -B(i, t)])  # Pas à la fois en A et B
+            cnf.append([A(i, t), B(i, t)])  # Au moins à A ou B
 
-    # 8. S'il n'y a pas de départ, les poules restent où elles sont
+    # ---------- Exactement un voyage par instant (ou aucun) ----------
+    for t in range(T + 1):
+        lits = [Travel(t, d) for d in range(max_d + 1)]
+        cnf.extend(CardEnc.atmost(lits, 1, vpool=vpool))  # Au plus un voyage
+
+    # ---------- Capacité de la barque ----------
+    for t in range(T + 1):
+        lits_onboard = [OnBoard(i, t) for i in range(n)]
+        cnf.extend(CardEnc.atmost(lits_onboard, c, vpool=vpool))
+
+    # ---------- Si voyage: au moins une poule embarque ----------
+    for t in range(T + 1):
+        for d in range(max_d + 1):
+            lits_onboard = [OnBoard(i, t) for i in range(n)]
+            # -Travel(t, d) OU (au moins 1 poule embarque)
+            cnf.extend(CardEnc.atleast(lits_onboard, 1, vpool=vpool))
+            # Implication simplifiée: Travel(t, d) -> (au moins une poule)
+            for i in range(n):
+                # Si Travel et pas cette poule, une autre doit embarquer
+                pass
+
+            cnf.append([-Travel(t, d)] + lits_onboard)
+
+    # ---------- Embarquement cohérent ----------
+    for t in range(T + 1):
+        for d in range(max_d + 1):
+            for i in range(n):
+                # Embarquement A vers B: poule doit être en A et barque coté A
+                cnf.append([-OnBoard(i, t), -Travel(t, d), -TravelDir(t), A(i, t)])
+
+                # Embarquement B vers A: poule doit être en B et barque coté B
+                cnf.append([-OnBoard(i, t), -Travel(t, d), TravelDir(t), B(i, t)])
+
+    # ---------- Cohérence direction / position barque ----------
+    for t in range(T + 1):
+        for d in range(max_d + 1):
+            if t + d <= T:
+                # Si voyage A vers B: barque en A avant, en B après
+                cnf.append([-Travel(t, d), -TravelDir(t), -BoatSide(t)])
+                cnf.append([-Travel(t, d), -TravelDir(t), BoatSide(t + d)])
+
+                # Si voyage B vers A: barque en B avant, en A après
+                cnf.append([-Travel(t, d), TravelDir(t), BoatSide(t)])
+                cnf.append([-Travel(t, d), TravelDir(t), -BoatSide(t + d)])
+
+    # ---------- Durée du voyage = max des durées des poules embarquées ----------
+    for t in range(T + 1):
+        for d in range(max_d + 1):
+            if t + d <= T:
+                # Si voyage de durée d, au moins une poule a durée d
+                lits_duration_d = []
+                for i in range(n):
+                    if durations[i] == d:
+                        lits_duration_d.append(OnBoard(i, t))
+
+                if lits_duration_d:
+                    cnf.append([-Travel(t, d)] + lits_duration_d)
+
+                # Si voyage de durée d, pas de poule avec durée > d
+                for i in range(n):
+                    if durations[i] > d:
+                        cnf.append([-Travel(t, d), -OnBoard(i, t)])
+
+    # ---------- Mise à jour positions après un voyage ----------
+    for t in range(T + 1):
+        for d in range(max_d + 1):
+            if t + d <= T:
+                for i in range(n):
+                    # Embarquement A->B
+                    cnf.append([-OnBoard(i, t), -Travel(t, d), -TravelDir(t), B(i, t + d)])
+
+                    # Embarquement B->A
+                    cnf.append([-OnBoard(i, t), -Travel(t, d), TravelDir(t), A(i, t + d)])
+
+    # ---------- Persistance: poules qui n'embarquent pas conservent position ----------
+    for t in range(T + 1):
+        for d in range(max_d + 1):
+            if t + d <= T:
+                for i in range(n):
+                    # Pas embarquement A vers B: conserve position
+                    cnf.append([-Travel(t, d), -TravelDir(t), OnBoard(i, t), A(i, t + d)])
+                    cnf.append([-Travel(t, d), -TravelDir(t), -A(i, t), -A(i, t + d)])
+
+                    # Pas embarquement B vers A: conserve position
+                    cnf.append([-Travel(t, d), TravelDir(t), OnBoard(i, t), B(i, t + d)])
+                    cnf.append([-Travel(t, d), TravelDir(t), -B(i, t), -B(i, t + d)])
+
+    # ---------- Persistance de la barque entre les voyages ----------
     for t in range(T):
-        for p in range(N):
-            cnf.append([Dep(t), -A(p, t), A(p, t + 1)])
-            cnf.append([Dep(t), A(p, t), -A(p, t + 1)])
-            cnf.append([Dep(t), -B(p, t), B(p, t + 1)])
-            cnf.append([Dep(t), B(p, t), -B(p, t + 1)])
+        for d in range(1, max_d + 1):
+            if t + d <= T:
+                # S'il y a voyage de t à t+d, barque reste stable après
+                for t_inter in range(t + 1, t + d):
+                    if t_inter <= T:
+                        cnf.append([-Travel(t, d), BoatSide(t + d)])
 
-    # 9. S'il n'y a pas de départ, la barque reste où elle est
+    # ---------- Persistance positions entre instants sans voyage ----------
     for t in range(T):
-        cnf.append([Dep(t), -side(t), side(t + 1)])
-        cnf.append([Dep(t), side(t), -side(t + 1)])
+        for d in range(1, max_d + 1):
+            if t + d <= T:
+                for i in range(n):
+                    for t_inter in range(t + 1, t + d):
+                        if t_inter <= T:
+                            cnf.append([-Travel(t, d), A(i, t), A(i, t_inter)])
+                            cnf.append([-Travel(t, d), B(i, t), B(i, t_inter)])
 
-    # ----------Résolution----------
+    # ---------- Résolution ----------
+    solver = Minicard()
+    solver.append_formula(cnf.clauses)
 
-    res = []
-    solver = Minisat22(use_timer=True)
-    solver.append_formula(cnf.clauses, no_return=False)
-
-    print("Resolution...")
-    result = solver.solve()
-    print("Problème satisfaisable : " + str(result))
-
-    print("Temps de resolution : " + '{0:.2f}s'.format(solver.time()))
-
-    # Affichage de la solution
-    res_model = solver.get_model()
-
-    if solution_display and result:
-
-        print("Voici une solution: \n")
-
-        for t in range(T + 1):
-            chickens = []
-            if AllB(t) in res_model:
-                print(f"{t}: toutes les poules en B")
-            if side(t) in res_model:
-                print(f"{t}: barque en B")
-            else:
-                print(f"{t}: barque en A")
-            for d in durations:
-                if dur(t, d) in res_model:
-                    print(f"{t}: voyage de durée {d}")
-            for p in range(N):
-                if A(p, t) in res_model:
-                    print(f"{t}: poule {p+1} en A")
-                if B(p, t) in res_model:
-                    print(f"{t}: poule {p+1} en B")
-                for s in directions:
-                    if dep(t, p, s) in res_model:
-                        print(f"{t}: départ de la poule {p+1} pour un {s}")
-                        chickens.append(p + 1)
-
-            if len(chickens) > 0:
-                res.append((t, chickens))
-
-        print(res)
-        return res
-    else:
+    if not solver.solve():
         return None
+
+    model = set(solver.get_model())
+
+    # ---------- Construction de la solution ----------
+    result = []
+
+    for t in range(T + 1):
+        # Chercher si un voyage commence à cet instant
+        for d in range(max_d + 1):
+            if Travel(t, d) in model:
+                chickens = []
+                for i in range(n):
+                    if OnBoard(i, t) in model:
+                        chickens.append(i + 1)
+
+                direction = "AversB" if TravelDir(t) not in model else "BversA"
+                result.append((t, chickens, d, direction))
+                break
+
+    return result
+
+
+def find_duration(durations: list[int], c: int) -> int:
+    """
+    Trouve la durée minimale pour transporter toutes les poules
+    Recherche binaire sur T
+    """
+    # Borne min
+    min_T = max(durations)
+
+    # Borne max
+    max_T = sum(durations) * 2
+
+    best_T = None
+
+    while min_T <= max_T:
+        mid_T = (min_T + max_T) // 2
+        solution = gen_solution(durations, c, mid_T)
+
+        if solution is not None:
+            best_T = mid_T
+            max_T = mid_T - 1
+        else:
+            min_T = mid_T + 1
+    return best_T
 
 
 def find_duration(durations: list[int], c: int) -> int:
