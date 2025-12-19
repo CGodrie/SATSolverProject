@@ -28,7 +28,7 @@ L’objectif est de déterminer s’il existe un plan de traversées permettant 
 Une réduction de ce problème vers SAT, implémentée à l’aide de la librairie \texttt{python-sat}, est présentée dans ce rapport.
 
 \section{Variables propositionnelles}
-
+On note $T_N = \max_{p \in \{1,\dots,N\}} T_p$ la durée maximale de traversée parmi toutes les poules.
 Pour $p \in \{1,\dots,N\}$, $t \in \{0,\dots,T\}$ et $d \in \{0,\dots,T_N\}$, les variables suivantes ont été~introduites :
 
 \begin{itemize}
@@ -40,6 +40,7 @@ Pour $p \in \{1,\dots,N\}$, $t \in \{0,\dots,T\}$ et $d \in \{0,\dots,T_N\}$, le
   \item $ARR_t$ : vraie ssi une arrivée a lieu à l’instant $t$.
   \item $move_{t,p}$ : vraie ssi la poule $p$ débarque à l’instant $t$.
   \item $ALL_t$ : vraie ssi toutes les poules sont sur la berge $B$ à l’instant $t$.
+
 \end{itemize}
 
 Nous utilisons également des variables auxiliaires :
@@ -83,12 +84,12 @@ et
 
 Un départ à l’instant $t$ a lieu si et seulement si au moins une poule embarque :
 \[
-DEP(t) \;\leftrightarrow\; \bigvee_{p=1}^n dep(t,p)
+DEP(t) \;\leftrightarrow\; \bigvee_{p=1}^N dep(t,p)
 \]
 
 La capacité de la barque est bornée par $c$ à l’aide d’une contrainte de cardinalité :
 \[
-\sum_{p=1}^n dep(t,p) \le c
+\sum_{p=1}^N dep(t,p) \le c
 \]
 
 Aucun départ n’est autorisé à l’instant final $T$.
@@ -135,6 +136,8 @@ La position de la barque évolue uniquement lors des arrivées :
   \item si $ARR(t)$, alors la barque change de berge ;
   \item sinon, elle reste sur la même berge.
 \end{itemize}
+Le type du mouvement (aller ou retour) est implicitement déterminé par la position de la barque au moment du départ.
+
 
 \section{Arrivées et chronologie}
 
@@ -163,6 +166,13 @@ L’évolution de la position des poules est alors définie par :
 
 La formule CNF est résolue à l’aide du solveur \texttt{Minisat22}.
 À partir du modèle satisfaisant, la solution est reconstruite en listant, pour chaque instant $t$, les poules embarquées lorsque $DEP(t)$ est vraie.
+
+\section{Complexité}
+
+Le nombre de variables et de clauses de la formule SAT produite est polynomial en fonction de $N$, $T$ et $T_N$.
+Les indices temporels sont bornés par $T$, supposé donné en base unaire, ce qui garantit que la taille de la réduction est polynomiale.
+
+La réduction du problème des poules contraint vers SAT est donc calculable en temps polynomial.
 
 \section{Conclusion}
 
