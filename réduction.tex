@@ -9,7 +9,7 @@
 \usepackage{geometry}
 \geometry{margin=2.5cm}
 
-\title{Informatique Fondamentale \\ Réduction vers SAT du problème des traversées de poules}
+\title{Informatique Fondamentale \\ Réduction vers SAT du problème des poules contraint}
 \author{CORMONTAGNE Romain\and GODRIE Clément\and KHARRAZ HAMOUCH Chakir}
 \date{21 Décembre 2025}
 
@@ -28,11 +28,12 @@ L’objectif est de déterminer s’il existe un plan de traversées permettant 
 Une réduction de ce problème vers SAT, implémentée à l’aide de la librairie \texttt{python-sat}, est présentée dans ce rapport.
 
 \section{Variables propositionnelles}
-On note $T_N = \max_{p \in \{1,\dots,N\}} T_p$ la durée maximale de traversée parmi toutes les poules.
-Pour $p \in \{1,\dots,N\}$, $t \in \{0,\dots,T\}$ et $d \in \{0,\dots,T_N\}$, les variables suivantes ont été~introduites :
+\label{section/variables}
+On note $T_{max} = \max_{p \in \{1,\dots,N\}} T_p$ la durée maximale de traversée parmi toutes les poules.
+Pour $p \in \{1,\dots,N\}$, $t \in \{0,\dots,T\}$ et $d \in \{0,\dots,T_{max}\}$, les variables suivantes ont été~introduites :
 
 \begin{itemize}
-  \item $A_{p,t}$ : vraie ssi la poule $p$ est sur la berge $A$ à l’instant $t$.
+  \item $A_{p,t}$ : vraie ssi la poule $p$ est sur la berge $A$ à l’instant $t$. Cette variable garantit implicitement que les poules ne peuvent se situer que sur une seule berge à un instant donné
   \item $side_t$ : vraie ssi la barque est sur la berge $A$ à l’instant $t$.
   \item $DEP_t$ : vraie ssi un départ a lieu à l’instant $t$.
   \item $dep_{t,p}$ : vraie ssi la poule $p$ embarque au départ de l’instant $t$.
@@ -43,18 +44,21 @@ Pour $p \in \{1,\dots,N\}$, $t \in \{0,\dots,T\}$ et $d \in \{0,\dots,T_N\}$, le
 
 \end{itemize}
 
-Nous utilisons également des variables auxiliaires :
+Ce modèle utilise également une variable auxiliaire :
 \[
 link_{t,d,p} \;\leftrightarrow\; dep_{t,p} \wedge dur_{t,d}
 \]
-qui permettent de relier un embarquement à son arrivée correspondante.
+qui permet de relier un embarquement à sa durée correspondante, donc à son arrivée.
 
 \section{Définition des contraintes}
+
+Cette section définit l'ensemble des contraintes dégagées pour réaliser le modèle de réduction présenté dans ce rapport, ainsi que leur expression en \emph{Forme Normale Conjonctive} (FNC).
+
 \subsection*{Initialisation}
 
 Au temps $t=0$, toutes les poules sont sur la berge $A$ et la barque est également sur $A$ :
 \[
-A_{p,0} \quad\text{et}\quad side_0
+\bigwedge_{p \in \{1, \dots, N\}} A_{p,0} \quad\text{et}\quad side_0
 \]
 
 \subsection*{Condition d’objectif}
@@ -66,17 +70,13 @@ ALL_T
 
 La variable $ALL_t$ est définie par l’équivalence :
 \[
-ALL_t \;\leftrightarrow\; \bigwedge_{p=1}^N \neg A_{p,t}
+\bigwedge_{t \in \{0, \dots, T\}} ALL_t \;\leftrightarrow\; \bigwedge_{p \in \{1, \dots, N\}} \neg A_{p,t}
 \]
 
-Qui se traduit en CNF par deux séries de clauses :
+Qui se traduit en FNC par deux séries de clauses :
 \[
-\bigwedge_{t \in \{0,\dots,T\}}\bigwedge_{p \in \{1,\dots,N\}} \neg ALL_t\; \vee\; \neg A_{p,t} 
-\]
-
-et
-
-\[
+\bigwedge_{t \in \{0,\dots,T\}}\bigwedge_{p \in \{1,\dots,N\}} \neg ALL_t\; \vee\; \neg A_{p,t} \\
+\quad\text{et} \\
 \bigwedge_{t \in \{0,\dots,T\}}(\bigvee_{p\in\{1;\dots,N\}}A_{p,t}\; \vee\; ALL_t)
 \]
 
@@ -84,100 +84,233 @@ et
 
 Un départ à l’instant $t$ a lieu si et seulement si au moins une poule embarque :
 \[
-DEP(t) \;\leftrightarrow\; \bigvee_{p=1}^N dep(t,p)
+\bigwedge_{t \in \{0, \dots, T\}} DEP_t \;\leftrightarrow\; \bigvee_{p \in \{1, \dots N\}} dep_{t,p}
 \]
 
-La capacité de la barque est bornée par $c$ à l’aide d’une contrainte de cardinalité :
+Cette équivalence se traduit en FNC par deux séries de clauses:
+
+
 \[
-\sum_{p=1}^N dep(t,p) \le c
+\bigwedge_{t \in \{0, \dots, T\}} \neg DEP_t\; \vee\; (\bigvee_{p \in \{1, \dots, N\}} dep_{t,p})
+\quad\text{et}
+\bigwedge_{t \in \{0, \dots, T\}} \bigwedge_{p \in \{1, \dots, N\}} \neg dep_{t,p}\; \vee\; DEP_t
 \]
 
-Aucun départ n’est autorisé à l’instant final $T$.
-
-\section{Durées des voyages}
-
-Un point central du modèle est que la durée est une \emph{fonction totale du temps}.
-À chaque instant $t$, exactement une valeur $dur(t,d)$ est vraie pour un $d \in \{0,\dots,\max T_p\}$.
-
-La valeur $d=0$ joue le rôle de sentinelle et représente l’absence de voyage :
+Ces clauses garantissent l'existence d'un embarquement de poule à chaque départ, mais n'en limitent pas le nombre. La capacité de la barque est bornée par $C$. Cette borne s'exprime à l’aide d’une contrainte de cardinalité :
 \[
-dur(t,0) \;\leftrightarrow\; \neg DEP(t)
+\sum_{p=1}^N dep_{t,p}\; \le\; C
 \]
 
-Cette modélisation garantit que les instants sans départ sont explicitement représentés, ce qui est essentiel pour la cohérence temporelle du modèle.
+Enfin, une clause supplémentaire est ajouté pour garantir qu'aucun départ n’est autorisé à l’instant final $T$:
 
-Les durées qui dépasseraient l’horizon temporel sont interdites :
 \[
-t + d > T \;\Rightarrow\; \neg dur(t,d)
+\neg DEP_T
 \]
 
-\section{Durée d’un voyage}
+\subsection*{Durées des voyages}
+
+Un point central du modèle est que la durée est une \emph{fonction totale du temps}. À chaque instant $t$, exactement une valeur $dur_{t,d}$ est vraie pour un $d \in \{0,\dots,\ T_{max}\}$.
+
+La valeur $d=0$ joue le rôle de sentinelle dans ce modèle, et représente l’absence de voyage :
+\[
+\bigwedge_{t \in \{0, \dots, T-1\}} dur_{t,0} \;\leftrightarrow\; \neg DEP_t
+\]
+
+Ce qui donne, après passage en FNC:
+
+\[
+\bigwedge_{t \in \{0, \dots, T-1\}} \neg dur_{t,0} \;\vee\; \neg DEP_t
+\quad\text{et}
+\bigwedge_{t \in \{0, \dots, T-1\}} DEP_t \;\vee\; dur_{t,0}
+\]
+
+Cette modélisation garantit que les instants sans départ sont explicitement représentés.
+
+De plus, les durées qui dépasseraient la borne temporelle $T$ sont interdites :
+
+\[
+\bigwedge_{t \in \{0, \dots, T\}} \bigwedge_{d \in \{0, \dots, T_{max}\} \;|\; t + d \;>\; T} \neg dur_{t,d}
+\]
+
+\subsection*{Durée d’un voyage}
 
 Si un voyage commence à l’instant $t$ avec une durée $d>0$, alors :
 \begin{itemize}
   \item aucune poule embarquée ne peut avoir une durée strictement supérieure à $d$ ;
   \item au moins une poule embarquée doit avoir une durée exactement égale à $d$.
+  \item toute poule qui embarque a une durée inférieure ou égale à $d$
 \end{itemize}
 
-Ces contraintes garantissent que la durée du voyage est bien le maximum des durées des poules embarquées.
+Ces contraintes garantissent que la durée du voyage est bien le maximum des durées des poules embarquées. Elles sont exprimées en FNC ci-dessous :
 
-\section{Cohérence des berges}
+Aucune poule de durée strictement supérieure à $d$ ne peut embarquer :
+
+\[
+\bigwedge_{t \in \{0, \dots, T-1\}} \bigwedge_{d \in \{0, \dots, T_{max}\}} \bigwedge_{p \;|\; T_p \;>\; d} \neg dur_{t,d} \;\vee\; \neg dep_{t,p}
+\]
+
+Il y a au moins une poule de durée égale à $d$ qui embarque :
+
+\[
+\bigwedge_{t \in \{0, \dots, T-1\}} \bigwedge_{d \in \{0, \dots, T_{max}\} \;|\; t + d \;\le\; T} \neg dur_{t,d} \;\vee\; (\bigvee_{p \in \{1, \dots, N\} \;|\; T_p =d} dep_{t,p})
+\]
+
+Toute poule qui embarque a une durée inférieure ou égale à $d$. Cette contrainte est reformulée pour contraindre la durée par rapport aux embarquement des poules. \textbf{Si une poule $p$ embarque à l'instant $t$, alors la durée $d$ du trajet est supérieure ou égale à $T_p$}:
+
+\[
+\bigwedge_{t \in \{0, \dots, T-1\}} \bigwedge_{p \in \{1, \dots, N\}} \neg dep_{t,p} \;\vee\; (\bigvee_{d \in \{0, \dots, T_{max}\} \;|\; d \ge T_p} dur_{t,d})
+\]
+
+\subsection*{Cohérence des berges}
 
 Une poule ne peut embarquer que depuis la berge où se trouve la barque :
 \[
+\bigwedge_{t \in \{0, \dots, T-1\}} \bigwedge_{p \in \{1, \dots, N\}}
 \begin{cases}
-side(t) \land dep(t,p) \Rightarrow A(p,t) \\
-\neg side(t) \land dep(t,p) \Rightarrow \neg A(p,t)
+side_t \wedge dep_{t,p} \Rightarrow A_{p,t} \\
+\neg side_t \wedge dep_{t,p} \Rightarrow \neg A_{p,t}
 \end{cases}
 \]
 
-La position de la barque évolue uniquement lors des arrivées :
+L'expression en FNC de ces deux cas donne les séries de clauses suivantes :
+
+\[
+\bigwedge_{t \in \{0, \dots, T-1\}} \bigwedge_{p \in \{1, \dots, N\}}
+\begin{cases}
+\neg side_t \vee \neg dep_{t,p} \vee A_{p,t} \\
+side_t \vee \neg dep_{t,p} \vee \neg A_{p,t}
+\end{cases}
+\]
+
+Par simplicité, le modèle est construit pour considérer que la position de la barque et celles des poules évoluent uniquement lors des arrivées :
 \begin{itemize}
-  \item si $ARR(t)$, alors la barque change de berge ;
+  \item si $ARR_t$, alors la barque change de berge ;
   \item sinon, elle reste sur la même berge.
 \end{itemize}
-Le type du mouvement (aller ou retour) est implicitement déterminé par la position de la barque au moment du départ.
+Le type du mouvement (aller ou retour) est implicitement déterminé par la position de la barque au moment du départ. En FNC :
 
+\[
+\bigwedge_{t \in \{1, \dots, T\}}
+\begin{cases}
+\neg ARR_t \;\vee\; \neg side_{t-1} \;\vee\; \neg side_t \\
+\neg ARR_t \;\vee\; side_{t-1} \;\vee\; side_t \\
+ARR_t \;\vee\; \neg side_{t-1} \;\vee\; side_t \\
+ARR_t \;\vee\; side_{t-1} \;\vee\; \neg side_t
+\end{cases}
+\]
 
-\section{Arrivées et chronologie}
+\subsection*{Arrivées et chronologie}
 
 Une arrivée à l’instant $t$ a lieu si et seulement s’il existe un instant $t_0 < t$ et une durée $d$ tels que :
 \[
-dur(t_0,d) \land t_0 + d = t
+dur_{t_0,d} \land t_0 + d = t
 \]
 
-Afin de correspondre aux attentes des tests, une \emph{timeline compacte} est imposée :
+Ou, en FNC, cela s'exprime comme deux séries de clauses :
+
+\[
+\bigwedge_{t \in \{0, \dots, T-1\}} \bigwedge_{d \in \{1, \dots, T_{max}\} \;|\; t + d \;\le\; T} \neg dur_{t,d} \;\vee\; ARR_{t+d}
+\quad\text{et}
+\bigwedge_{t \in \{1, \dots, T\}} \neg ARR_t \;\vee\; (\bigvee_{t' \in \{0, \dots, t-1\} \;|\; t-t' \in \{0, \dots, T_{max}\}} dur_{t',t-t'})
+\]
+
+Afin de correspondre aux attentes des tests, une \emph{succession immédiate} entre arrivées et départs est imposée :
 \begin{itemize}
-  \item tout départ $t>0$ doit correspondre à une arrivée ;
-  \item après une arrivée, si toutes les poules ne sont pas encore sur $B$, un nouveau départ a lieu immédiatement.
+  \item tout départ à un instant $t>0$ doit correspondre à une arrivée ;
+  \item après une arrivée, si toutes les poules ne sont pas encore sur la berge $B$, un nouveau départ a lieu immédiatement.
 \end{itemize}
 
-\section{Mouvements des poules}
+Tout départ après le premier doit correspondre à une arrivée :
 
-La variable $move(t,p)$ est vraie si et seulement si la poule $p$ était embarquée lors du départ dont l’arrivée a lieu à l’instant $t$.
+\[
+\bigwedge_{t \in \{1, \dots, T\}} \neg DEP_t \;\vee\; ARR_t
+\]
 
-L’évolution de la position des poules est alors définie par :
+Après une arrivée, si toutes les poules ne sont pas encore sur la berge B, un nouveau départ a lieu immédiatement :
+
+\[
+\bigwedge_{t \in \{1, \dots, T-1\}} \neg ARR_t \;\vee\; ALL_t \;\vee\; DEP_t
+\]
+
+\subsection*{Mouvements des poules}
+
+La variable $move_{t,p}$ est vraie si et seulement si la poule $p$ était embarquée lors du départ dont l’arrivée a lieu à l’instant $t$ (autrement dit, une poule ne peut débarquer que si elle avait embarqué auparavant).
+
+Si une poule débarque à un instant $t$, alors elle a embarqué à un instant $t'$ pour un voyage de durée $t-t'$
+
+\[
+\bigwedge_{t \in \{1, \dots, T\}} \bigwedge_{p \in \{1, \dots, N\}} \neg move_{t,p} \;\vee\; (\bigvee_{t' \in {0, \dots, t} \;|\; t-t' \in \{1, \dots, T_{max}\}} link_{t',t-t',p})
+\]
+
+Si une poule embarque à un instant $t$ pour un voyage de durée $d$, alors elle débarque à l'instant $t+d$ :
+
+\[
+\bigwedge_{t \in \{0, \dots, T-1\}} \bigwedge_{p \in \{1, \dots, N\}} \bigwedge_{d \in \{0, \dots, T_{max}\} \;|\; t+d \;\leq\; T} \neg link_{t,d,p} \;\vee\; move_{t+d,p}
+\]
+
+Où $link_{t,d,p}$ est définie pour tous $t,d,p$ par l'équivalence définie à la section \ref{section/variables}, consacrée aux définitions des variables. Exprimée en FNC, cette équivalence devient :
+
+\[
+\bigwedge_{t \in \{0, \dots, T-1\}} \bigwedge_{d \in \{1, \dots, T_{max}\} \;|\; t+d \le T} \bigwedge_{p \in \{1, \dots, N\}}
+\begin{cases}
+\neg link_{t,d,p} \;\vee\; dep_{t,p} \\
+\neg link_{t,d,p} \;\vee\; dur_{t,d} \\
+\neg dep_{t,p} \;\vee\; \neg dur_{t,d} \;\vee\; link_{t,d,p}
+\end{cases}
+\]
+
+En utilisant la variable $move$, l’évolution de la position des poules est définie par :
 \begin{itemize}
   \item sans arrivée, les poules restent sur la même berge ;
-  \item avec arrivée, une poule change de berge si et seulement si $move(t,p)$ est vraie.
+  \item à une arrivée à un instant $t$, une poule $p$ change de berge si et seulement si $move_{t,p}$ est vraie.
 \end{itemize}
+
+Sans arrivée, les poules restent sur la même berge :
+
+\[
+\bigwedge_{t \in \{1, \dots, T\}} \bigwedge_{p \in \{1, \dots, N\}}
+\begin{cases}
+ARR_t \;\vee\; \neg A_{p,t-1} \;\vee\; A_{p,t} \\
+ARR_t \;\vee\; A_{p,t-1} \;\vee\; \neg A_{p,t}
+\end{cases}
+\]
+
+À une arrivée, les poules qui débarquent changent de berge :
+
+\[
+\bigwedge_{t \in \{1, \dots, T\}} \bigwedge_{p \in \{1, \dots, N\}}
+\begin{cases}
+\neg ARR_t \;\vee\; \neg move_{t,p} \;\vee\; \neg A_{p,t-1} \;\vee\; \neg A_{p,t} \\
+\neg ARR_t \;\vee\; \neg move_{t,p} \;\vee\; A_{p,t-1} \;\vee\; A_{p,t} \\
+\end{cases}
+\]
+
+À une arrivée, les poules qui ne débarquent pas (autrement dit, qui n'avaient pas embarqué au départ) restent sur leurs berge respectives :
+
+\[
+\bigwedge_{t \in \{1, \dots, T\}} \bigwedge_{p \in \{1, \dots, N\}}
+\begin{cases}
+\neg ARR_t \;\vee\; move_{t,p} \;\vee\; \neg A_{p,t-1} \;\vee\; A_{p,t} \\
+\neg ARR_t \;\vee\; move_{t,p} \;\vee\; A_{p,t-1} \;\vee\; \neg A_{p,t} \\
+\end{cases}
+\]
 
 \section{Résolution et reconstruction}
 
 La formule CNF est résolue à l’aide du solveur \texttt{Minisat22}.
-À partir du modèle satisfaisant, la solution est reconstruite en listant, pour chaque instant $t$, les poules embarquées lorsque $DEP(t)$ est vraie.
+À partir du modèle précédemment décrit, la solution est reconstruite en listant, pour chaque instant $t$, les poules $p$ pour lesquelles $dep_{t,p}$ est vraie.
 
 \section{Complexité}
 
-Le nombre de variables et de clauses de la formule SAT produite est polynomial en fonction de $N$, $T$ et $T_N$.
-Les indices temporels sont bornés par $T$, supposé donné en base unaire, ce qui garantit que la taille de la réduction est polynomiale.
+Le nombre de variables et de clauses de la formule SAT produite est polynomial en fonction de $N$, $T$ et l'ensemble des $T_i$.
+Les indices temporels sont bornés par $T$, ce qui garantit que la taille de la réduction est polynomiale.
 
 La réduction du problème des poules contraint vers SAT est donc calculable en temps polynomial.
 
 \section{Conclusion}
 
-Cette réduction vers SAT est fidèle au problème initial et permet de déterminer l’existence d’un plan de traversées dans un temps borné.
+Cette réduction vers SAT est fidèle au problème initial et permet de déterminer en temps polynomial l’existence d’un plan de traversées dans un temps borné et, par extension, de déterminer une minimisation du temps total de traversée d'un nombre de poules donné avec une capacité de barque et des vitesses par poule fixes.
 Un point clé du modèle est le traitement de la durée comme une fonction totale du temps, ce qui justifie l’introduction de la valeur sentinelle $d=0$.
-Les tests fournis confirment la correction et la complétude de l’encodage.
+La correction et la complétude de l'encodage ont pu être vérifiés à l'aide du fichier \texttt{tests.py} fourni.
 
 \end{document}

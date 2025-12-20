@@ -316,13 +316,3 @@ def find_duration(durations: list[int], c: int) -> int:
             return T
 
     return upper_limit
-
-# Local test
-
-res = gen_solution([1, 3, 6, 8], 2, 18)
-print(res)
-
-if res == [(0, [1, 2]), (3, [1]), (4, [3, 4]), (12, [2]), (15, [1, 2])]:
-    print("Test passed!")
-else:
-    print("Test failed")
